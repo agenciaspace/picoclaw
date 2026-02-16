@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test deploy-hostinger deploy-hostinger-setup deploy-hostinger-status deploy-hostinger-rollback
+.PHONY: all build install uninstall clean help test deploy-hostinger deploy-hostinger-full deploy-hostinger-setup deploy-hostinger-status deploy-hostinger-rollback
 
 # Build variables
 BINARY_NAME=picoclaw
@@ -155,6 +155,15 @@ HOSTINGER_SSH_KEY?=$(HOME)/.ssh/id_rsa
 HOSTINGER_SSH_PORT?=22
 HOSTINGER_DEPLOY_METHOD?=docker
 
+## deploy-hostinger-full: Full deploy (setup + config + build + start) in one command
+deploy-hostinger-full:
+	@bash deploy/hostinger/full-deploy.sh \
+		-h "$(HOSTINGER_HOST)" \
+		-u "$(HOSTINGER_USER)" \
+		-k "$(HOSTINGER_SSH_KEY)" \
+		-p "$(HOSTINGER_SSH_PORT)" \
+		-m "$(HOSTINGER_DEPLOY_METHOD)"
+
 ## deploy-hostinger-setup: Run initial server setup on Hostinger VPS
 deploy-hostinger-setup:
 	@bash deploy/hostinger/setup-server.sh
@@ -202,6 +211,7 @@ help:
 	@echo "  make uninstall          # Remove from /usr/local/bin"
 	@echo ""
 	@echo "Hostinger Deployment:"
+	@echo "  make deploy-hostinger-full   HOSTINGER_HOST=1.2.3.4  # Full deploy (all-in-one)"
 	@echo "  make deploy-hostinger-setup  HOSTINGER_HOST=1.2.3.4  # Initial server setup"
 	@echo "  make deploy-hostinger        HOSTINGER_HOST=1.2.3.4  # Deploy to VPS"
 	@echo "  make deploy-hostinger-status HOSTINGER_HOST=1.2.3.4  # Check status"
