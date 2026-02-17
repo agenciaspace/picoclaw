@@ -98,12 +98,14 @@ if [ ! -f "${SSH_KEY}" ]; then
     warn "SSH key not found at ${SSH_KEY}"
     info "Will attempt password-based SSH. For better security, set up SSH keys."
     SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT}"
+    SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -P ${SSH_PORT}"
 else
     SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT} -i ${SSH_KEY}"
+    SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -P ${SSH_PORT} -i ${SSH_KEY}"
 fi
 
 SSH_CMD="ssh ${SSH_OPTS} ${SSH_USER}@${HOST}"
-SCP_CMD="scp ${SSH_OPTS}"
+SCP_CMD="scp ${SCP_OPTS}"
 
 # ── Get project root ─────────────────────────────────
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

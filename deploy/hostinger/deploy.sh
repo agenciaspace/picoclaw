@@ -63,8 +63,9 @@ done
 [ ! -f "${SSH_KEY}" ] && error "SSH key not found: ${SSH_KEY}"
 
 SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p ${SSH_PORT} -i ${SSH_KEY}"
+SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -P ${SSH_PORT} -i ${SSH_KEY}"
 SSH_CMD="ssh ${SSH_OPTS} ${USER}@${HOST}"
-SCP_CMD="scp ${SSH_OPTS}"
+SCP_CMD="scp ${SCP_OPTS}"
 
 # ── Verify Connection ────────────────────────────────
 log "Verifying SSH connection to ${USER}@${HOST}:${SSH_PORT}..."
