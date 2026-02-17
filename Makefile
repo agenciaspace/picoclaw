@@ -176,6 +176,10 @@ setup-telegram:
 setup-tailscale:
 	@bash deploy/hostinger/setup-tailscale.sh
 
+## sync-dev: Sync with development branch (claude/hostinger-remote-deployment-TGVof)
+sync-dev:
+	@bash deploy/sync-dev.sh
+
 ## deploy-hostinger: Deploy PicoClaw to Hostinger VPS
 deploy-hostinger:
 	@bash deploy/hostinger/deploy.sh \
