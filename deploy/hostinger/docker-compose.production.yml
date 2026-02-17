@@ -15,7 +15,7 @@ services:
     container_name: picoclaw-gateway
     restart: unless-stopped
     ports:
-      - "18790:18790"
+      - "127.0.0.1:18790:18790"
     volumes:
       # Configuration (read-only)
       - /opt/picoclaw/config/config.json:/root/.picoclaw/config.json:ro

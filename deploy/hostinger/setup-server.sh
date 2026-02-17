@@ -130,18 +130,37 @@ if command -v ufw &>/dev/null; then
     ufw default deny incoming
     ufw default allow outgoing
     ufw allow ssh
-    ufw allow 18790/tcp comment "PicoClaw Gateway"
-    # Uncomment if you need webhook ports:
-    # ufw allow 18791/tcp comment "PicoClaw Line Webhook"
+    # Port 18790 is NOT opened publicly - accessible only via Tailscale
     ufw --force enable
-    log "UFW firewall configured"
+    log "UFW firewall configured (port 18790 is tailscale-only)"
 elif command -v firewall-cmd &>/dev/null; then
     systemctl enable firewalld
     systemctl start firewalld
     firewall-cmd --permanent --add-service=ssh
-    firewall-cmd --permanent --add-port=18790/tcp
+    # Port 18790 is NOT opened publicly - accessible only via Tailscale
     firewall-cmd --reload
-    log "firewalld configured"
+    log "firewalld configured (port 18790 is tailscale-only)"
+fi
+
+# ── 6b. Install and configure Tailscale ──────────────
+log "Installing Tailscale..."
+if ! command -v tailscale &>/dev/null; then
+    curl -fsSL https://tailscale.com/install.sh | sh
+    log "Tailscale installed"
+else
+    log "Tailscale already installed: $(tailscale version 2>/dev/null | head -1)"
+fi
+
+if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
+    log "Authenticating Tailscale with auth key..."
+    tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --hostname="picoclaw" --ssh
+    log "Tailscale authenticated. Configuring serve..."
+    tailscale serve --bg http://localhost:18790
+    log "Tailscale serve active: https://picoclaw.TAILNET.ts.net -> localhost:18790"
+else
+    warn "TAILSCALE_AUTH_KEY not set. Run manually after setup:"
+    warn "  tailscale up --hostname=picoclaw --ssh"
+    warn "  tailscale serve --bg http://localhost:18790"
 fi
 
 # ── 7. Configure fail2ban ────────────────────────────
@@ -300,5 +319,5 @@ else
     echo "  6. View logs:      tail -f ${PICOCLAW_HOME}/logs/picoclaw.log"
 fi
 echo ""
-log "Firewall ports open: SSH (22), PicoClaw Gateway (18790)"
+log "Firewall ports open: SSH (22) only. Port 18790 accessible via Tailscale only."
 echo ""

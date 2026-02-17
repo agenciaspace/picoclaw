@@ -110,6 +110,29 @@ jobs:
           echo "Docker deploy complete"
           EOF
 
+      - name: Ensure Tailscale serve is active
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}" <<'EOF'
+          if command -v tailscale &>/dev/null && tailscale status &>/dev/null 2>&1; then
+            tailscale serve --bg http://localhost:18790 2>/dev/null || true
+            echo "Tailscale serve active on tailnet"
+            tailscale ip -4 2>/dev/null && echo "(use the IP above or tailnet hostname to access)"
+          else
+            echo "::warning::Tailscale not installed or not authenticated. Run setup-server.sh first."
+          fi
+          EOF
+
       - name: Health check
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
