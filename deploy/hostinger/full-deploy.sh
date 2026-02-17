@@ -58,6 +58,7 @@ HOST=""
 SSH_USER="root"
 SSH_KEY="${HOME}/.ssh/id_rsa"
 SSH_PORT="22"
+SSH_PASSWORD=""
 METHOD="docker"
 SKIP_SETUP=false
 SKIP_CONFIG=false
@@ -71,6 +72,22 @@ CHAT_CHANNEL="${CHAT_CHANNEL:-}"
 CHAT_TOKEN="${CHAT_TOKEN:-}"
 CHAT_ALLOW_FROM="${CHAT_ALLOW_FROM:-}"
 DEPLOY_TIMEZONE="${DEPLOY_TIMEZONE:-America/Sao_Paulo}"
+
+# ── Load .deploy.env if exists ──────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/.deploy.env" ]; then
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/.deploy.env"
+    # Map DEPLOY_* vars to internal vars
+    HOST="${DEPLOY_HOST:-${HOST}}"
+    SSH_USER="${DEPLOY_USER:-${SSH_USER}}"
+    SSH_PORT="${DEPLOY_PORT:-${SSH_PORT}}"
+    SSH_PASSWORD="${DEPLOY_PASSWORD:-${SSH_PASSWORD}}"
+    METHOD="${DEPLOY_METHOD:-${METHOD}}"
+    if [ -n "${DEPLOY_SSH_KEY:-}" ]; then
+        SSH_KEY="${DEPLOY_SSH_KEY}"
+    fi
+fi
 
 # ── Parse Arguments ──────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -94,21 +111,38 @@ done
 # ── Validate ─────────────────────────────────────────
 [ -z "${HOST}" ] && error "Host is required. Usage: $0 -h YOUR_VPS_IP"
 
-if [ ! -f "${SSH_KEY}" ]; then
-    warn "SSH key not found at ${SSH_KEY}"
-    info "Will attempt password-based SSH. For better security, set up SSH keys."
+SSHPASS_CMD=""
+if [ -n "${SSH_PASSWORD}" ]; then
+    # Use sshpass for password-based authentication
+    if ! command -v sshpass &>/dev/null; then
+        warn "sshpass not installed. Installing..."
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get install -y -qq sshpass 2>/dev/null
+        elif command -v brew &>/dev/null; then
+            brew install sshpass 2>/dev/null || brew install hudochenkov/sshpass/sshpass 2>/dev/null
+        fi
+        command -v sshpass &>/dev/null || error "Could not install sshpass. Install it manually: apt-get install sshpass"
+    fi
+    export SSHPASS="${SSH_PASSWORD}"
+    SSHPASS_CMD="sshpass -e"
     SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT}"
     SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -P ${SSH_PORT}"
-else
+    info "Using password from .deploy.env"
+elif [ -f "${SSH_KEY}" ]; then
     SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT} -i ${SSH_KEY}"
     SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -P ${SSH_PORT} -i ${SSH_KEY}"
+else
+    warn "SSH key not found at ${SSH_KEY} and no password configured."
+    info "Will attempt interactive password SSH. For automation, create deploy/hostinger/.deploy.env"
+    SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT}"
+    SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -P ${SSH_PORT}"
 fi
 
-SSH_CMD="ssh ${SSH_OPTS} ${SSH_USER}@${HOST}"
-SCP_CMD="scp ${SCP_OPTS}"
+SSH_CMD="${SSHPASS_CMD} ssh ${SSH_OPTS} ${SSH_USER}@${HOST}"
+SCP_CMD="${SSHPASS_CMD} scp ${SCP_OPTS}"
 
 # ── Get project root ─────────────────────────────────
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # ── Banner ───────────────────────────────────────────
 echo ""
@@ -120,7 +154,13 @@ echo -e "${NC}"
 echo "  Host:     ${HOST}"
 echo "  User:     ${SSH_USER}"
 echo "  Method:   ${METHOD}"
-echo "  SSH Key:  ${SSH_KEY}"
+if [ -n "${SSH_PASSWORD}" ]; then
+echo "  Auth:     password (from .deploy.env)"
+elif [ -f "${SSH_KEY}" ]; then
+echo "  Auth:     SSH key (${SSH_KEY})"
+else
+echo "  Auth:     interactive password"
+fi
 echo ""
 
 if [ "${AUTO_YES}" = false ]; then
@@ -517,7 +557,7 @@ if [ "${METHOD}" = "docker" ]; then
     # ── Docker Deploy ────────────────────────────────
     log "Syncing project files to server..."
     rsync -az --delete \
-        -e "ssh ${SSH_OPTS}" \
+        -e "${SSHPASS_CMD} ssh ${SSH_OPTS}" \
         --exclude '.git' \
         --exclude 'build/' \
         --exclude '.env' \
@@ -564,7 +604,7 @@ else
     # ── Binary Deploy ────────────────────────────────
     log "Syncing source code to server..."
     rsync -az --delete \
-        -e "ssh ${SSH_OPTS}" \
+        -e "${SSHPASS_CMD} ssh ${SSH_OPTS}" \
         --exclude '.git' \
         --exclude 'build/' \
         --exclude '.env' \
