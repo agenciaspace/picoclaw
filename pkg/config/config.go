@@ -373,10 +373,61 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// Load provider env vars manually since ProviderConfig's env tags
+	// use {{.Name}} templates that caarlos0/env cannot resolve.
+	// Supports both PICOCLAW_PROVIDERS_<NAME>_API_KEY and PICOCLAW_<NAME>_API_KEY.
+	cfg.loadProviderEnvVars()
+
 	// Migrate deprecated provider configs to Zai (Z.ai, formerly Zhipu/Moonshot)
 	cfg.migrateProviders()
 
 	return cfg, nil
+}
+
+// loadProviderEnvVars reads provider-specific environment variables.
+// ProviderConfig is a shared struct so its env tags use {{.Name}} placeholders
+// which caarlos0/env cannot resolve. This function manually checks env vars
+// in two formats: PICOCLAW_PROVIDERS_<NAME>_API_KEY and PICOCLAW_<NAME>_API_KEY.
+func (c *Config) loadProviderEnvVars() {
+	providerEnv := []struct {
+		name string
+		cfg  *ProviderConfig
+	}{
+		{"ZAI", &c.Providers.Zai},
+		{"ZHIPU", &c.Providers.Zhipu},
+		{"MOONSHOT", &c.Providers.Moonshot},
+		{"ANTHROPIC", &c.Providers.Anthropic},
+		{"OPENAI", &c.Providers.OpenAI},
+		{"OPENROUTER", &c.Providers.OpenRouter},
+		{"GROQ", &c.Providers.Groq},
+		{"GEMINI", &c.Providers.Gemini},
+		{"NVIDIA", &c.Providers.Nvidia},
+		{"OLLAMA", &c.Providers.Ollama},
+		{"VLLM", &c.Providers.VLLM},
+		{"DEEPSEEK", &c.Providers.DeepSeek},
+		{"SHENGSUANYUN", &c.Providers.ShengSuanYun},
+	}
+
+	for _, p := range providerEnv {
+		loadProviderField(&p.cfg.APIKey, p.name, "API_KEY")
+		loadProviderField(&p.cfg.APIBase, p.name, "API_BASE")
+		loadProviderField(&p.cfg.Proxy, p.name, "PROXY")
+	}
+}
+
+// loadProviderField sets *dst from env var if not already set.
+// Checks PICOCLAW_PROVIDERS_<name>_<field> first, then PICOCLAW_<name>_<field>.
+func loadProviderField(dst *string, name, field string) {
+	if *dst != "" {
+		return
+	}
+	if v := os.Getenv("PICOCLAW_PROVIDERS_" + name + "_" + field); v != "" {
+		*dst = v
+		return
+	}
+	if v := os.Getenv("PICOCLAW_" + name + "_" + field); v != "" {
+		*dst = v
+	}
 }
 
 // migrateProviders merges deprecated Zhipu provider config into Zai.
