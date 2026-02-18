@@ -1,0 +1,234 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches: ["main", "claude/hostinger-remote-deployment-*"]
+  workflow_dispatch:
+
+env:
+  REMOTE_DIR: /opt/picoclaw
+  DEPLOY_METHOD: docker
+
+jobs:
+  deploy:
+    name: Deploy to Hostinger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass rsync
+
+      - name: Verify SSH connection
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -p ${{ secrets.HOSTINGER_SSH_PORT || '22' }} \
+            ${{ secrets.HOSTINGER_SSH_USER || 'root' }}@${{ secrets.HOSTINGER_HOST }} \
+            "echo 'SSH connection OK'"
+
+      - name: Sync project files to server
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          rsync -az --delete \
+            -e "sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${SSH_PORT}" \
+            --exclude '.git' \
+            --exclude 'build/' \
+            --exclude '.env' \
+            --exclude 'node_modules/' \
+            --exclude '.deploy.env' \
+            ./ "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}:${REMOTE_DIR}/src/"
+
+      - name: Copy Docker Compose production config
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -P "${SSH_PORT}" \
+            deploy/hostinger/docker-compose.production.yml \
+            "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}:${REMOTE_DIR}/docker-compose.yml"
+
+      - name: Configure environment variables
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}" bash -s <<EOF
+          set -e
+          ENV_FILE="/opt/picoclaw/config/.env"
+          CONFIG_FILE="/opt/picoclaw/config/config.json"
+
+          mkdir -p /opt/picoclaw/config
+          touch "\$ENV_FILE"
+
+          set_env_var() {
+            local key="\$1"
+            local value="\$2"
+            if grep -q "^\${key}=" "\$ENV_FILE" 2>/dev/null; then
+              sed -i "s|^\${key}=.*|\${key}=\${value}|" "\$ENV_FILE"
+            else
+              echo "\${key}=\${value}" >> "\$ENV_FILE"
+            fi
+          }
+
+          # Telegram Bot Token + Enable
+          TELEGRAM_TOKEN="${{ secrets.PICOCLAW_TELEGRAM_BOT_TOKEN }}"
+          if [ -n "\$TELEGRAM_TOKEN" ]; then
+            set_env_var "PICOCLAW_CHANNELS_TELEGRAM_TOKEN" "\$TELEGRAM_TOKEN"
+            set_env_var "PICOCLAW_CHANNELS_TELEGRAM_ENABLED" "true"
+            echo "Telegram: token and enabled flag configured"
+          else
+            echo "WARNING: PICOCLAW_TELEGRAM_BOT_TOKEN secret is empty - Telegram will not start"
+          fi
+
+          # Anthropic API Key
+          ANTHROPIC_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+          if [ -n "\$ANTHROPIC_KEY" ]; then
+            set_env_var "ANTHROPIC_API_KEY" "\$ANTHROPIC_KEY"
+            echo "Anthropic: API key configured"
+          fi
+
+          # Create config.json if it doesn't exist (copy from example)
+          if [ ! -f "\$CONFIG_FILE" ]; then
+            if [ -f "/opt/picoclaw/src/config/config.example.json" ]; then
+              cp /opt/picoclaw/src/config/config.example.json "\$CONFIG_FILE"
+              echo "Created config.json from example template"
+            fi
+          fi
+
+          # Verify critical config
+          echo ""
+          echo "=== Deploy Config Verification ==="
+          echo "ENV file exists: \$(test -f "\$ENV_FILE" && echo YES || echo NO)"
+          echo "Config file exists: \$(test -f "\$CONFIG_FILE" && echo YES || echo NO)"
+          echo "Telegram enabled: \$(grep -c 'PICOCLAW_CHANNELS_TELEGRAM_ENABLED=true' "\$ENV_FILE" 2>/dev/null || echo 0)"
+          echo "Telegram token set: \$(grep -c 'PICOCLAW_CHANNELS_TELEGRAM_TOKEN=' "\$ENV_FILE" 2>/dev/null || echo 0)"
+          echo "Anthropic key set: \$(grep -c 'ANTHROPIC_API_KEY=' "\$ENV_FILE" 2>/dev/null || echo 0)"
+          echo "=================================="
+          EOF
+
+      - name: Build and restart Docker container
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}" <<'EOF'
+          set -e
+          cd /opt/picoclaw
+
+          echo "Building Docker image..."
+          docker compose build picoclaw-gateway
+
+          echo "Stopping existing container..."
+          docker compose down --timeout 30 2>/dev/null || true
+
+          echo "Starting PicoClaw gateway..."
+          docker compose up -d picoclaw-gateway
+
+          echo "Waiting for container to start..."
+          sleep 5
+
+          if docker compose ps picoclaw-gateway 2>/dev/null | grep -qE "Up|running"; then
+              echo "Container is running!"
+              docker compose ps
+              echo ""
+              echo "=== Recent logs ==="
+              docker compose logs --tail=15 picoclaw-gateway 2>&1 || true
+          else
+              echo "Container FAILED to start!"
+              docker compose ps
+              echo ""
+              echo "Container logs:"
+              docker compose logs --tail=50 picoclaw-gateway
+              exit 1
+          fi
+
+          docker image prune -f >/dev/null 2>&1
+          echo "Docker deploy complete"
+          EOF
+
+      - name: Ensure Tailscale serve is active
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}" <<'EOF'
+          if command -v tailscale &>/dev/null && tailscale status &>/dev/null 2>&1; then
+            tailscale serve --bg http://localhost:18790 2>/dev/null || true
+            echo "Tailscale serve active on tailnet"
+            tailscale ip -4 2>/dev/null && echo "(use the IP above or tailnet hostname to access)"
+          else
+            echo "::warning::Tailscale not installed or not authenticated. Run setup-server.sh first."
+          fi
+          EOF
+
+      - name: Health check
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          SSH_PORT="${{ secrets.HOSTINGER_SSH_PORT }}"
+          SSH_PORT="${SSH_PORT:-22}"
+          SSH_USER="${{ secrets.HOSTINGER_SSH_USER }}"
+          SSH_USER="${SSH_USER:-root}"
+
+          HEALTH_OK=false
+          for i in 1 2 3 4 5; do
+            sleep 3
+            if sshpass -e ssh \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              -p "${SSH_PORT}" \
+              "${SSH_USER}@${{ secrets.HOSTINGER_HOST }}" \
+              "curl -sf http://localhost:18790/health" 2>/dev/null; then
+              HEALTH_OK=true
+              echo ""
+              echo "Health check PASSED!"
+              break
+            fi
+            echo "Waiting for gateway to start... (attempt ${i}/5)"
+          done
+
+          if [ "${HEALTH_OK}" = false ]; then
+            echo "::warning::Health check did not pass after 5 attempts. The service may still be starting up."
+          fi
