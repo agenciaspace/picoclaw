@@ -171,12 +171,13 @@ type ProvidersConfig struct {
 	OpenAI        ProviderConfig `json:"openai"`
 	OpenRouter    ProviderConfig `json:"openrouter"`
 	Groq          ProviderConfig `json:"groq"`
-	Zhipu         ProviderConfig `json:"zhipu"`
+	Zai           ProviderConfig `json:"zai"`
+	Zhipu         ProviderConfig `json:"zhipu"`    // Deprecated: use "zai" instead
 	VLLM          ProviderConfig `json:"vllm"`
 	Gemini        ProviderConfig `json:"gemini"`
 	Nvidia        ProviderConfig `json:"nvidia"`
 	Ollama        ProviderConfig `json:"ollama"`
-	Moonshot      ProviderConfig `json:"moonshot"`
+	Moonshot      ProviderConfig `json:"moonshot"` // Deprecated: use "zai" instead
 	ShengSuanYun  ProviderConfig `json:"shengsuanyun"`
 	DeepSeek      ProviderConfig `json:"deepseek"`
 	GitHubCopilot ProviderConfig `json:"github_copilot"`
@@ -311,11 +312,10 @@ func DefaultConfig() *Config {
 			OpenAI:       ProviderConfig{},
 			OpenRouter:   ProviderConfig{},
 			Groq:         ProviderConfig{},
-			Zhipu:        ProviderConfig{},
+			Zai:          ProviderConfig{},
 			VLLM:         ProviderConfig{},
 			Gemini:       ProviderConfig{},
 			Nvidia:       ProviderConfig{},
-			Moonshot:     ProviderConfig{},
 			ShengSuanYun: ProviderConfig{},
 		},
 		Gateway: GatewayConfig{
@@ -373,7 +373,71 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// Load provider env vars manually since ProviderConfig's env tags
+	// use {{.Name}} templates that caarlos0/env cannot resolve.
+	// Supports both PICOCLAW_PROVIDERS_<NAME>_API_KEY and PICOCLAW_<NAME>_API_KEY.
+	cfg.loadProviderEnvVars()
+
+	// Migrate deprecated provider configs to Zai (Z.ai, formerly Zhipu/Moonshot)
+	cfg.migrateProviders()
+
 	return cfg, nil
+}
+
+// loadProviderEnvVars reads provider-specific environment variables.
+// ProviderConfig is a shared struct so its env tags use {{.Name}} placeholders
+// which caarlos0/env cannot resolve. This function manually checks env vars
+// in two formats: PICOCLAW_PROVIDERS_<NAME>_API_KEY and PICOCLAW_<NAME>_API_KEY.
+func (c *Config) loadProviderEnvVars() {
+	providerEnv := []struct {
+		name string
+		cfg  *ProviderConfig
+	}{
+		{"ZAI", &c.Providers.Zai},
+		{"ZHIPU", &c.Providers.Zhipu},
+		{"MOONSHOT", &c.Providers.Moonshot},
+		{"ANTHROPIC", &c.Providers.Anthropic},
+		{"OPENAI", &c.Providers.OpenAI},
+		{"OPENROUTER", &c.Providers.OpenRouter},
+		{"GROQ", &c.Providers.Groq},
+		{"GEMINI", &c.Providers.Gemini},
+		{"NVIDIA", &c.Providers.Nvidia},
+		{"OLLAMA", &c.Providers.Ollama},
+		{"VLLM", &c.Providers.VLLM},
+		{"DEEPSEEK", &c.Providers.DeepSeek},
+		{"SHENGSUANYUN", &c.Providers.ShengSuanYun},
+	}
+
+	for _, p := range providerEnv {
+		loadProviderField(&p.cfg.APIKey, p.name, "API_KEY")
+		loadProviderField(&p.cfg.APIBase, p.name, "API_BASE")
+		loadProviderField(&p.cfg.Proxy, p.name, "PROXY")
+	}
+}
+
+// loadProviderField sets *dst from env var if not already set.
+// Checks PICOCLAW_PROVIDERS_<name>_<field> first, then PICOCLAW_<name>_<field>.
+func loadProviderField(dst *string, name, field string) {
+	if *dst != "" {
+		return
+	}
+	if v := os.Getenv("PICOCLAW_PROVIDERS_" + name + "_" + field); v != "" {
+		*dst = v
+		return
+	}
+	if v := os.Getenv("PICOCLAW_" + name + "_" + field); v != "" {
+		*dst = v
+	}
+}
+
+// migrateProviders merges deprecated Zhipu provider config into Zai.
+// Zhipu AI rebranded to Z.ai in 2025 - same company, same API.
+// Note: Moonshot (Kimi) is a separate service and is NOT migrated
+// automatically, as Moonshot API keys are incompatible with Z.ai.
+func (c *Config) migrateProviders() {
+	if c.Providers.Zai.APIKey == "" && c.Providers.Zhipu.APIKey != "" {
+		c.Providers.Zai = c.Providers.Zhipu
+	}
 }
 
 func SaveConfig(path string, cfg *Config) error {
@@ -414,8 +478,8 @@ func (c *Config) GetAPIKey() string {
 	if c.Providers.Gemini.APIKey != "" {
 		return c.Providers.Gemini.APIKey
 	}
-	if c.Providers.Zhipu.APIKey != "" {
-		return c.Providers.Zhipu.APIKey
+	if c.Providers.Zai.APIKey != "" {
+		return c.Providers.Zai.APIKey
 	}
 	if c.Providers.Groq.APIKey != "" {
 		return c.Providers.Groq.APIKey
@@ -438,8 +502,8 @@ func (c *Config) GetAPIBase() string {
 		}
 		return "https://openrouter.ai/api/v1"
 	}
-	if c.Providers.Zhipu.APIKey != "" {
-		return c.Providers.Zhipu.APIBase
+	if c.Providers.Zai.APIKey != "" {
+		return c.Providers.Zai.APIBase
 	}
 	if c.Providers.VLLM.APIKey != "" && c.Providers.VLLM.APIBase != "" {
 		return c.Providers.VLLM.APIBase

@@ -106,23 +106,49 @@ jobs:
             echo "WARNING: PICOCLAW_TELEGRAM_BOT_TOKEN secret is empty - Telegram will not start"
           fi
 
-          # Z.AI (Zhipu GLM) API Key
+          # Z.AI API Key
           ZAI_KEY="${{ secrets.PICOCLAW_ZAI_API_KEY }}"
           if [ -n "\$ZAI_KEY" ]; then
-            set_env_var "PICOCLAW_PROVIDERS_ZHIPU_API_KEY" "\$ZAI_KEY"
-            set_env_var "PICOCLAW_PROVIDERS_ZHIPU_API_BASE" "https://api.z.ai/api/paas/v4"
-            set_env_var "PICOCLAW_AGENTS_DEFAULTS_PROVIDER" "zhipu"
+            set_env_var "PICOCLAW_ZAI_API_KEY" "\$ZAI_KEY"
+            set_env_var "PICOCLAW_ZAI_API_BASE" "https://api.z.ai/api/paas/v4"
+            set_env_var "PICOCLAW_AGENTS_DEFAULTS_PROVIDER" "zai"
             set_env_var "PICOCLAW_AGENTS_DEFAULTS_MODEL" "glm-4.7"
-            echo "Z.AI/Zhipu: API key and default model configured"
+            echo "Z.ai: API key and default model configured"
           else
             echo "WARNING: PICOCLAW_ZAI_API_KEY secret is empty"
           fi
+
+          # Remove stale moonshot/zhipu env vars that conflict with Z.ai migration
+          for old_key in PICOCLAW_PROVIDERS_ZHIPU_API_KEY PICOCLAW_PROVIDERS_ZHIPU_API_BASE \
+                         PICOCLAW_PROVIDERS_MOONSHOT_API_KEY PICOCLAW_PROVIDERS_MOONSHOT_API_BASE \
+                         PICOCLAW_ZHIPU_API_KEY PICOCLAW_MOONSHOT_API_KEY; do
+            sed -i "/^\${old_key}=/d" "\$ENV_FILE" 2>/dev/null || true
+          done
 
           # Create config.json if it doesn't exist (copy from example)
           if [ ! -f "\$CONFIG_FILE" ]; then
             if [ -f "/opt/picoclaw/src/config/config.example.json" ]; then
               cp /opt/picoclaw/src/config/config.example.json "\$CONFIG_FILE"
               echo "Created config.json from example template"
+            fi
+          fi
+
+          # Force-update model and provider in existing config.json to prevent
+          # stale kimi/moonshot values from persisting across deploys.
+          # env.Parse() overrides these at runtime, but keeping config.json
+          # consistent avoids confusion when debugging.
+          if [ -f "\$CONFIG_FILE" ]; then
+            # Update model if it still references kimi/moonshot
+            if grep -q '"model".*kimi\|"model".*moonshot' "\$CONFIG_FILE" 2>/dev/null; then
+              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*kimi[^"]*"/"model": "glm-4.7"/' "\$CONFIG_FILE"
+              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*moonshot[^"]*"/"model": "glm-4.7"/' "\$CONFIG_FILE"
+              echo "Updated config.json: replaced kimi/moonshot model with glm-4.7"
+            fi
+            # Update provider if it still references zhipu/moonshot
+            if grep -q '"provider".*zhipu\|"provider".*moonshot' "\$CONFIG_FILE" 2>/dev/null; then
+              sed -i 's/"provider"[[:space:]]*:[[:space:]]*"zhipu"/"provider": "zai"/' "\$CONFIG_FILE"
+              sed -i 's/"provider"[[:space:]]*:[[:space:]]*"moonshot"/"provider": "zai"/' "\$CONFIG_FILE"
+              echo "Updated config.json: replaced zhipu/moonshot provider with zai"
             fi
           fi
 
@@ -133,7 +159,7 @@ jobs:
           echo "Config file exists: \$(test -f "\$CONFIG_FILE" && echo YES || echo NO)"
           echo "Telegram enabled: \$(grep -c 'PICOCLAW_CHANNELS_TELEGRAM_ENABLED=true' "\$ENV_FILE" 2>/dev/null || echo 0)"
           echo "Telegram token set: \$(grep -c 'PICOCLAW_CHANNELS_TELEGRAM_TOKEN=' "\$ENV_FILE" 2>/dev/null || echo 0)"
-          echo "Z.AI key set: \$(grep -c 'PICOCLAW_PROVIDERS_ZHIPU_API_KEY=' "\$ENV_FILE" 2>/dev/null || echo 0)"
+          echo "Z.AI key set: \$(grep -c 'PICOCLAW_ZAI_API_KEY=' "\$ENV_FILE" 2>/dev/null || echo 0)"
           echo "=================================="
           EOF
 
