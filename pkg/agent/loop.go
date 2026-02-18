@@ -1017,7 +1017,7 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		switch args[0] {
 		case "models":
 			// TODO: Fetch available models dynamically if possible
-			return "Available models: glm-4.7, claude-3-5-sonnet, gpt-4o (configured in config.json/env)", true
+			return "Available models: glm-5, claude-3-5-sonnet, gpt-4o (configured in config.json/env)", true
 		case "channels":
 			if al.channelManager == nil {
 				return "Channel manager not initialized", true

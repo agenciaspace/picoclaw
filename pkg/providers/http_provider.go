@@ -53,7 +53,7 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		return nil, fmt.Errorf("API base not configured")
 	}
 
-	// Strip provider prefix from model name (e.g., zai/glm-4.7 -> glm-4.7, groq/openai/gpt-oss-120b -> openai/gpt-oss-120b, ollama/qwen2.5:14b -> qwen2.5:14b)
+	// Strip provider prefix from model name (e.g., zai/glm-5 -> glm-5, groq/openai/gpt-oss-120b -> openai/gpt-oss-120b, ollama/qwen2.5:14b -> qwen2.5:14b)
 	if idx := strings.Index(model, "/"); idx != -1 {
 		prefix := model[:idx]
 		if prefix == "zai" || prefix == "moonshot" || prefix == "nvidia" || prefix == "groq" || prefix == "ollama" {
@@ -337,7 +337,7 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				}
 				// Swap incompatible kimi model names when routing to Z.ai
 				if strings.Contains(lowerModel, "kimi") || strings.Contains(lowerModel, "moonshot") {
-					model = "glm-4.7"
+					model = "glm-5"
 				}
 			} else if cfg.Providers.Moonshot.APIKey != "" {
 				apiKey = cfg.Providers.Moonshot.APIKey
@@ -384,7 +384,7 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				apiKey = cfg.Providers.Zai.APIKey
 				apiBase = cfg.Providers.Zai.APIBase
 				proxy = cfg.Providers.Zai.Proxy
-				model = "glm-4.7"
+				model = "glm-5"
 				if apiBase == "" {
 					apiBase = "https://api.z.ai/api/paas/v4"
 				}

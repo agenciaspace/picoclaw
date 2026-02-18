@@ -112,7 +112,7 @@ jobs:
             set_env_var "PICOCLAW_ZAI_API_KEY" "\$ZAI_KEY"
             set_env_var "PICOCLAW_ZAI_API_BASE" "https://api.z.ai/api/paas/v4"
             set_env_var "PICOCLAW_AGENTS_DEFAULTS_PROVIDER" "zai"
-            set_env_var "PICOCLAW_AGENTS_DEFAULTS_MODEL" "glm-4.7"
+            set_env_var "PICOCLAW_AGENTS_DEFAULTS_MODEL" "glm-5"
             echo "Z.ai: API key and default model configured"
           else
             echo "WARNING: PICOCLAW_ZAI_API_KEY secret is empty"
@@ -140,9 +140,9 @@ jobs:
           if [ -f "\$CONFIG_FILE" ]; then
             # Update model if it still references kimi/moonshot
             if grep -q '"model".*kimi\|"model".*moonshot' "\$CONFIG_FILE" 2>/dev/null; then
-              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*kimi[^"]*"/"model": "glm-4.7"/' "\$CONFIG_FILE"
-              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*moonshot[^"]*"/"model": "glm-4.7"/' "\$CONFIG_FILE"
-              echo "Updated config.json: replaced kimi/moonshot model with glm-4.7"
+              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*kimi[^"]*"/"model": "glm-5"/' "\$CONFIG_FILE"
+              sed -i 's/"model"[[:space:]]*:[[:space:]]*"[^"]*moonshot[^"]*"/"model": "glm-5"/' "\$CONFIG_FILE"
+              echo "Updated config.json: replaced kimi/moonshot model with glm-5"
             fi
             # Update provider if it still references zhipu/moonshot
             if grep -q '"provider".*zhipu\|"provider".*moonshot' "\$CONFIG_FILE" 2>/dev/null; then
