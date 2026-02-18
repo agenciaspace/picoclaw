@@ -728,56 +728,48 @@ func (al *AgentLoop) updateToolContexts(channel, chatID string) {
 func (al *AgentLoop) maybeSummarize(sessionKey, channel, chatID string) {
 	newHistory := al.sessions.GetHistory(sessionKey)
 	tokenEstimate := al.estimateTokens(newHistory)
-	threshold := al.contextWindow * 75 / 100
+	threshold := al.contextWindow * 85 / 100
 
-	if len(newHistory) > 20 || tokenEstimate > threshold {
+	// Use message count threshold of 40 (tool calls mean ~3-5 messages per user interaction,
+	// so 40 messages ≈ 8-13 real interactions before summarization triggers).
+	if len(newHistory) > 40 || tokenEstimate > threshold {
 		if _, loading := al.summarizing.LoadOrStore(sessionKey, true); !loading {
 			go func() {
 				defer al.summarizing.Delete(sessionKey)
-				// Notify user about optimization if not an internal channel
-				if !constants.IsInternalChannel(channel) {
-					al.bus.PublishOutbound(bus.OutboundMessage{
-						Channel: channel,
-						ChatID:  chatID,
-						Content: "⚠️ Memory threshold reached. Optimizing conversation history...",
-					})
-				}
 				al.summarizeSession(sessionKey)
+				logger.InfoCF("agent", "Session summarized in background", map[string]interface{}{
+					"session_key":    sessionKey,
+					"history_count":  len(newHistory),
+					"token_estimate": tokenEstimate,
+				})
 			}()
 		}
 	}
 }
 
-// forceCompression aggressively reduces context when the limit is hit.
-// It drops the oldest 50% of messages (keeping system prompt and last user message).
+// forceCompression reduces context when the limit is hit.
+// It drops the oldest 35% of messages (keeping system prompt, recent conversation, and last user message).
 func (al *AgentLoop) forceCompression(sessionKey string) {
 	history := al.sessions.GetHistory(sessionKey)
-	if len(history) <= 4 {
+	if len(history) <= 6 {
 		return
 	}
 
 	// Keep system prompt (usually [0]) and the very last message (user's trigger)
-	// We want to drop the oldest half of the *conversation*
-	// Assuming [0] is system, [1:] is conversation
+	// Drop the oldest 35% of conversation to preserve more recent context.
 	conversation := history[1 : len(history)-1]
 	if len(conversation) == 0 {
 		return
 	}
 
-	// Helper to find the mid-point of the conversation
-	mid := len(conversation) / 2
+	// Drop the oldest 35% of conversation
+	dropCount := len(conversation) * 35 / 100
+	if dropCount < 1 {
+		dropCount = 1
+	}
 
-	// New history structure:
-	// 1. System Prompt
-	// 2. [Summary of dropped part] - synthesized
-	// 3. Second half of conversation
-	// 4. Last message
-
-	// Simplified approach for emergency: Drop first half of conversation
-	// and rely on existing summary if present, or create a placeholder.
-
-	droppedCount := mid
-	keptConversation := conversation[mid:]
+	droppedCount := dropCount
+	keptConversation := conversation[dropCount:]
 
 	newHistory := make([]providers.Message, 0)
 	newHistory = append(newHistory, history[0]) // System prompt
@@ -884,12 +876,13 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 	history := al.sessions.GetHistory(sessionKey)
 	summary := al.sessions.GetSummary(sessionKey)
 
-	// Keep last 4 messages for continuity
-	if len(history) <= 4 {
+	// Keep last 8 messages for continuity (provides ~2-3 recent interactions of context)
+	keepCount := 8
+	if len(history) <= keepCount {
 		return
 	}
 
-	toSummarize := history[:len(history)-4]
+	toSummarize := history[:len(history)-keepCount]
 
 	// Oversized Message Guard
 	// Skip messages larger than 50% of context window to prevent summarizer overflow
@@ -946,7 +939,7 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 
 	if finalSummary != "" {
 		al.sessions.SetSummary(sessionKey, finalSummary)
-		al.sessions.TruncateHistory(sessionKey, 4)
+		al.sessions.TruncateHistory(sessionKey, 8)
 		al.sessions.Save(sessionKey)
 	}
 }
@@ -973,15 +966,18 @@ func (al *AgentLoop) summarizeBatch(ctx context.Context, batch []providers.Messa
 }
 
 // estimateTokens estimates the number of tokens in a message list.
-// Uses a safe heuristic of 2.5 characters per token to account for CJK and other
-// overheads better than the previous 3 chars/token.
+// Uses ~3.5 characters per token as a balanced heuristic:
+// - English text averages ~4 chars/token
+// - CJK text averages ~1.5-2 chars/token
+// - Mixed content (code, URLs, tool results) averages ~3-4 chars/token
+// The previous 2.5 ratio was too aggressive and triggered summarization too early.
 func (al *AgentLoop) estimateTokens(messages []providers.Message) int {
 	totalChars := 0
 	for _, m := range messages {
 		totalChars += utf8.RuneCountInString(m.Content)
 	}
-	// 2.5 chars per token = totalChars * 2 / 5
-	return totalChars * 2 / 5
+	// 3.5 chars per token = totalChars * 2 / 7
+	return totalChars * 2 / 7
 }
 
 func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) (string, bool) {
