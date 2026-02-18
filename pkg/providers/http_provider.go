@@ -335,6 +335,10 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				if apiBase == "" {
 					apiBase = "https://api.z.ai/api/paas/v4"
 				}
+				// Swap incompatible kimi model names when routing to Z.ai
+				if strings.Contains(lowerModel, "kimi") || strings.Contains(lowerModel, "moonshot") {
+					model = "glm-4.7"
+				}
 			} else if cfg.Providers.Moonshot.APIKey != "" {
 				apiKey = cfg.Providers.Moonshot.APIKey
 				apiBase = cfg.Providers.Moonshot.APIBase
@@ -367,20 +371,22 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 			}
 
 		case (strings.Contains(lowerModel, "kimi") || strings.Contains(lowerModel, "moonshot") || strings.HasPrefix(model, "moonshot/")):
-			// Kimi/Moonshot models: prefer Zai, fallback to legacy Moonshot config
-			if cfg.Providers.Zai.APIKey != "" {
-				apiKey = cfg.Providers.Zai.APIKey
-				apiBase = cfg.Providers.Zai.APIBase
-				proxy = cfg.Providers.Zai.Proxy
-				if apiBase == "" {
-					apiBase = "https://api.z.ai/api/paas/v4"
-				}
-			} else if cfg.Providers.Moonshot.APIKey != "" {
+			// Kimi/Moonshot models: prefer legacy Moonshot config, fallback to Zai with model swap
+			if cfg.Providers.Moonshot.APIKey != "" {
 				apiKey = cfg.Providers.Moonshot.APIKey
 				apiBase = cfg.Providers.Moonshot.APIBase
 				proxy = cfg.Providers.Moonshot.Proxy
 				if apiBase == "" {
 					apiBase = "https://api.moonshot.cn/v1"
+				}
+			} else if cfg.Providers.Zai.APIKey != "" {
+				// Kimi model names are not valid on Z.ai - use default GLM model
+				apiKey = cfg.Providers.Zai.APIKey
+				apiBase = cfg.Providers.Zai.APIBase
+				proxy = cfg.Providers.Zai.Proxy
+				model = "glm-4.7"
+				if apiBase == "" {
+					apiBase = "https://api.z.ai/api/paas/v4"
 				}
 			}
 
