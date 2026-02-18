@@ -172,7 +172,7 @@ type ProvidersConfig struct {
 	OpenRouter    ProviderConfig `json:"openrouter"`
 	Groq          ProviderConfig `json:"groq"`
 	Zai           ProviderConfig `json:"zai"`
-	Zhipu         ProviderConfig `json:"zhipu"`    // Deprecated: use "zai" instead
+	Zhipu         ProviderConfig `json:"zhipu"` // Deprecated: use "zai" instead
 	VLLM          ProviderConfig `json:"vllm"`
 	Gemini        ProviderConfig `json:"gemini"`
 	Nvidia        ProviderConfig `json:"nvidia"`
