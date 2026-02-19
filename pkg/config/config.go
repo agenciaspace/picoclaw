@@ -227,7 +227,7 @@ type GoogleConfig struct {
 	ClientID     string `json:"client_id" env:"PICOCLAW_GOOGLE_CLIENT_ID"`
 	ClientSecret string `json:"client_secret" env:"PICOCLAW_GOOGLE_CLIENT_SECRET"`
 	// Scopes defines which Google APIs are accessible.
-	// Defaults: Gmail read/send, Calendar read/write, Drive file access.
+	// Defaults: Gmail read/send, Calendar read/write, Drive file access, Photos library.
 	Scopes []string `json:"scopes"`
 }
 
@@ -357,6 +357,7 @@ func DefaultConfig() *Config {
 					"https://www.googleapis.com/auth/gmail.send",
 					"https://www.googleapis.com/auth/calendar",
 					"https://www.googleapis.com/auth/drive.file",
+					"https://www.googleapis.com/auth/photoslibrary",
 				},
 			},
 		},

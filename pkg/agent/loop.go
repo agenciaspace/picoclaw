@@ -91,21 +91,23 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 	registry.Register(tools.NewI2CTool())
 	registry.Register(tools.NewSPITool())
 
-	// Google tools (Gmail, Calendar, Drive) - only register if Google OAuth is configured
+	// Google tools (Gmail, Calendar, Drive, Photos) - only register if Google OAuth is configured
 	if cfg.Tools.Google.ClientID != "" && cfg.Tools.Google.ClientSecret != "" {
 		registry.Register(tools.NewGmailTool(cfg.Tools.Google.ClientID, cfg.Tools.Google.ClientSecret))
 		registry.Register(tools.NewGCalTool(cfg.Tools.Google.ClientID, cfg.Tools.Google.ClientSecret))
 		registry.Register(tools.NewGDriveTool(cfg.Tools.Google.ClientID, cfg.Tools.Google.ClientSecret))
+		registry.Register(tools.NewGPhotosTool(cfg.Tools.Google.ClientID, cfg.Tools.Google.ClientSecret))
 	}
 
 	// Message tool - available to both agent and subagent
 	// Subagent uses it to communicate directly with user
 	messageTool := tools.NewMessageTool()
-	messageTool.SetSendCallback(func(channel, chatID, content string) error {
+	messageTool.SetSendCallback(func(channel, chatID, content string, media []string) error {
 		msgBus.PublishOutbound(bus.OutboundMessage{
 			Channel: channel,
 			ChatID:  chatID,
 			Content: content,
+			Media:   media,
 		})
 		return nil
 	})

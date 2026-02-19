@@ -11,7 +11,7 @@ func TestMessageTool_Execute_Success(t *testing.T) {
 	tool.SetContext("test-channel", "test-chat-id")
 
 	var sentChannel, sentChatID, sentContent string
-	tool.SetSendCallback(func(channel, chatID, content string) error {
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
 		sentChannel = channel
 		sentChatID = chatID
 		sentContent = content
@@ -58,12 +58,75 @@ func TestMessageTool_Execute_Success(t *testing.T) {
 	}
 }
 
+func TestMessageTool_Execute_WithMedia(t *testing.T) {
+	tool := NewMessageTool()
+	tool.SetContext("telegram", "12345")
+
+	var sentMedia []string
+	var sentContent string
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
+		sentContent = content
+		sentMedia = media
+		return nil
+	})
+
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"content": "Here is a photo",
+		"media":   []interface{}{"https://example.com/photo.jpg", "/tmp/doc.pdf"},
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if result.IsError {
+		t.Errorf("Expected no error, got: %s", result.ForLLM)
+	}
+	if sentContent != "Here is a photo" {
+		t.Errorf("Expected content 'Here is a photo', got '%s'", sentContent)
+	}
+	if len(sentMedia) != 2 {
+		t.Errorf("Expected 2 media items, got %d", len(sentMedia))
+	}
+	if !result.Silent {
+		t.Error("Expected Silent=true")
+	}
+	expected := "Message sent to telegram:12345 with 2 media file(s)"
+	if result.ForLLM != expected {
+		t.Errorf("Expected ForLLM '%s', got '%s'", expected, result.ForLLM)
+	}
+}
+
+func TestMessageTool_Execute_MediaOnly(t *testing.T) {
+	tool := NewMessageTool()
+	tool.SetContext("telegram", "12345")
+
+	var sentMedia []string
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
+		sentMedia = media
+		return nil
+	})
+
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"media": []interface{}{"/tmp/photo.jpg"},
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if result.IsError {
+		t.Errorf("Expected no error, got: %s", result.ForLLM)
+	}
+	if len(sentMedia) != 1 {
+		t.Errorf("Expected 1 media item, got %d", len(sentMedia))
+	}
+}
+
 func TestMessageTool_Execute_WithCustomChannel(t *testing.T) {
 	tool := NewMessageTool()
 	tool.SetContext("default-channel", "default-chat-id")
 
 	var sentChannel, sentChatID string
-	tool.SetSendCallback(func(channel, chatID, content string) error {
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
 		sentChannel = channel
 		sentChatID = chatID
 		return nil
@@ -99,7 +162,7 @@ func TestMessageTool_Execute_SendFailure(t *testing.T) {
 	tool.SetContext("test-channel", "test-chat-id")
 
 	sendErr := errors.New("network error")
-	tool.SetSendCallback(func(channel, chatID, content string) error {
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
 		return sendErr
 	})
 
@@ -136,7 +199,7 @@ func TestMessageTool_Execute_MissingContent(t *testing.T) {
 	tool.SetContext("test-channel", "test-chat-id")
 
 	ctx := context.Background()
-	args := map[string]interface{}{} // content missing
+	args := map[string]interface{}{} // content and media both missing
 
 	result := tool.Execute(ctx, args)
 
@@ -144,8 +207,8 @@ func TestMessageTool_Execute_MissingContent(t *testing.T) {
 	if !result.IsError {
 		t.Error("Expected IsError=true for missing content")
 	}
-	if result.ForLLM != "content is required" {
-		t.Errorf("Expected ForLLM 'content is required', got '%s'", result.ForLLM)
+	if result.ForLLM != "content or media is required" {
+		t.Errorf("Expected ForLLM 'content or media is required', got '%s'", result.ForLLM)
 	}
 }
 
@@ -153,7 +216,7 @@ func TestMessageTool_Execute_NoTargetChannel(t *testing.T) {
 	tool := NewMessageTool()
 	// No SetContext called, so defaultChannel and defaultChatID are empty
 
-	tool.SetSendCallback(func(channel, chatID, content string) error {
+	tool.SetSendCallback(func(channel, chatID, content string, media []string) error {
 		return nil
 	})
 
@@ -224,12 +287,6 @@ func TestMessageTool_Parameters(t *testing.T) {
 		t.Fatal("Expected properties to be a map")
 	}
 
-	// Check required properties
-	required, ok := params["required"].([]string)
-	if !ok || len(required) != 1 || required[0] != "content" {
-		t.Error("Expected 'content' to be required")
-	}
-
 	// Check content property
 	contentProp, ok := props["content"].(map[string]interface{})
 	if !ok {
@@ -237,6 +294,15 @@ func TestMessageTool_Parameters(t *testing.T) {
 	}
 	if contentProp["type"] != "string" {
 		t.Error("Expected content type to be 'string'")
+	}
+
+	// Check media property
+	mediaProp, ok := props["media"].(map[string]interface{})
+	if !ok {
+		t.Error("Expected 'media' property")
+	}
+	if mediaProp["type"] != "array" {
+		t.Error("Expected media type to be 'array'")
 	}
 
 	// Check channel property (optional)

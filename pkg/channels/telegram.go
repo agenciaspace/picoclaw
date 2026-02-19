@@ -157,19 +157,34 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 		c.stopThinking.Delete(msg.ChatID)
 	}
 
-	htmlContent := markdownToTelegramHTML(msg.Content)
-
-	// Try to edit placeholder
+	// Delete placeholder before sending media or text
 	if pID, ok := c.placeholders.Load(msg.ChatID); ok {
 		c.placeholders.Delete(msg.ChatID)
-		editMsg := tu.EditMessageText(tu.ID(chatID), pID.(int), htmlContent)
-		editMsg.ParseMode = telego.ModeHTML
-
-		if _, err = c.bot.EditMessageText(ctx, editMsg); err == nil {
-			return nil
-		}
-		// Fallback to new message if edit fails
+		_ = c.bot.DeleteMessage(ctx, &telego.DeleteMessageParams{
+			ChatID:    tu.ID(chatID),
+			MessageID: pID.(int),
+		})
 	}
+
+	// Send media files first (photos/documents)
+	for _, mediaPath := range msg.Media {
+		if err := c.sendMedia(ctx, chatID, mediaPath); err != nil {
+			logger.ErrorCF("telegram", "Failed to send media", map[string]interface{}{
+				"path":  mediaPath,
+				"error": err.Error(),
+			})
+		}
+	}
+
+	// Send text content (skip if empty and we sent media)
+	if msg.Content == "" && len(msg.Media) > 0 {
+		return nil
+	}
+	if msg.Content == "" {
+		return nil
+	}
+
+	htmlContent := markdownToTelegramHTML(msg.Content)
 
 	tgMsg := tu.Message(tu.ID(chatID), htmlContent)
 	tgMsg.ParseMode = telego.ModeHTML
@@ -184,6 +199,54 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 	}
 
 	return nil
+}
+
+// sendMedia sends a photo or document to a Telegram chat.
+// Supports local file paths and HTTP(S) URLs.
+func (c *TelegramChannel) sendMedia(ctx context.Context, chatID int64, mediaPath string) error {
+	isURL := strings.HasPrefix(mediaPath, "http://") || strings.HasPrefix(mediaPath, "https://")
+	isImage := strings.HasSuffix(strings.ToLower(mediaPath), ".jpg") ||
+		strings.HasSuffix(strings.ToLower(mediaPath), ".jpeg") ||
+		strings.HasSuffix(strings.ToLower(mediaPath), ".png") ||
+		strings.HasSuffix(strings.ToLower(mediaPath), ".gif") ||
+		strings.HasSuffix(strings.ToLower(mediaPath), ".webp")
+
+	if isImage {
+		var photo telego.InputFile
+		if isURL {
+			photo = telego.InputFile{URL: mediaPath}
+		} else {
+			file, err := os.Open(mediaPath)
+			if err != nil {
+				return fmt.Errorf("opening photo %s: %w", mediaPath, err)
+			}
+			defer file.Close()
+			photo = telego.InputFile{File: file}
+		}
+		_, err := c.bot.SendPhoto(ctx, &telego.SendPhotoParams{
+			ChatID: tu.ID(chatID),
+			Photo:  photo,
+		})
+		return err
+	}
+
+	// Non-image: send as document
+	var doc telego.InputFile
+	if isURL {
+		doc = telego.InputFile{URL: mediaPath}
+	} else {
+		file, err := os.Open(mediaPath)
+		if err != nil {
+			return fmt.Errorf("opening document %s: %w", mediaPath, err)
+		}
+		defer file.Close()
+		doc = telego.InputFile{File: file}
+	}
+	_, err := c.bot.SendDocument(ctx, &telego.SendDocumentParams{
+		ChatID:   tu.ID(chatID),
+		Document: doc,
+	})
+	return err
 }
 
 func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Message) error {
