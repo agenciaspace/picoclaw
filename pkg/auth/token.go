@@ -37,6 +37,8 @@ func providerDisplayName(provider string) string {
 		return "console.anthropic.com"
 	case "openai":
 		return "platform.openai.com"
+	case "google":
+		return "console.cloud.google.com"
 	default:
 		return provider
 	}

@@ -223,9 +223,18 @@ type CronToolsConfig struct {
 	ExecTimeoutMinutes int `json:"exec_timeout_minutes" env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
 }
 
+type GoogleConfig struct {
+	ClientID     string `json:"client_id" env:"PICOCLAW_GOOGLE_CLIENT_ID"`
+	ClientSecret string `json:"client_secret" env:"PICOCLAW_GOOGLE_CLIENT_SECRET"`
+	// Scopes defines which Google APIs are accessible.
+	// Defaults: Gmail read/send, Calendar read/write.
+	Scopes []string `json:"scopes"`
+}
+
 type ToolsConfig struct {
-	Web  WebToolsConfig  `json:"web"`
-	Cron CronToolsConfig `json:"cron"`
+	Web    WebToolsConfig  `json:"web"`
+	Cron   CronToolsConfig `json:"cron"`
+	Google GoogleConfig    `json:"google"`
 }
 
 func DefaultConfig() *Config {
@@ -341,6 +350,13 @@ func DefaultConfig() *Config {
 			},
 			Cron: CronToolsConfig{
 				ExecTimeoutMinutes: 5, // default 5 minutes for LLM operations
+			},
+			Google: GoogleConfig{
+				Scopes: []string{
+					"https://www.googleapis.com/auth/gmail.readonly",
+					"https://www.googleapis.com/auth/gmail.send",
+					"https://www.googleapis.com/auth/calendar",
+				},
 			},
 		},
 		Heartbeat: HeartbeatConfig{

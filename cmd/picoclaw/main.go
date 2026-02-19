@@ -751,6 +751,9 @@ func statusCmd() {
 			fmt.Println("vLLM/Local: not set")
 		}
 
+		hasGoogle := cfg.Tools.Google.ClientID != ""
+		fmt.Println("Google Integration:", status(hasGoogle))
+
 		store, _ := auth.LoadStore()
 		if store != nil && len(store.Credentials) > 0 {
 			fmt.Println("\nOAuth/Token Auth:")
@@ -793,13 +796,14 @@ func authHelp() {
 	fmt.Println("  status      Show current auth status")
 	fmt.Println()
 	fmt.Println("Login options:")
-	fmt.Println("  --provider <name>    Provider to login with (openai, anthropic)")
+	fmt.Println("  --provider <name>    Provider to login with (openai, anthropic, google)")
 	fmt.Println("  --device-code        Use device code flow (for headless environments)")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  picoclaw auth login --provider openai")
 	fmt.Println("  picoclaw auth login --provider openai --device-code")
 	fmt.Println("  picoclaw auth login --provider anthropic")
+	fmt.Println("  picoclaw auth login --provider google")
 	fmt.Println("  picoclaw auth logout --provider openai")
 	fmt.Println("  picoclaw auth status")
 }
@@ -823,7 +827,7 @@ func authLoginCmd() {
 
 	if provider == "" {
 		fmt.Println("Error: --provider is required")
-		fmt.Println("Supported providers: openai, anthropic")
+		fmt.Println("Supported providers: openai, anthropic, google")
 		return
 	}
 
@@ -832,9 +836,11 @@ func authLoginCmd() {
 		authLoginOpenAI(useDeviceCode)
 	case "anthropic":
 		authLoginPasteToken(provider)
+	case "google":
+		authLoginGoogle()
 	default:
 		fmt.Printf("Unsupported provider: %s\n", provider)
-		fmt.Println("Supported providers: openai, anthropic")
+		fmt.Println("Supported providers: openai, anthropic, google")
 	}
 }
 
@@ -872,6 +878,50 @@ func authLoginOpenAI(useDeviceCode bool) {
 	if cred.AccountID != "" {
 		fmt.Printf("Account: %s\n", cred.AccountID)
 	}
+}
+
+func authLoginGoogle() {
+	appCfg, err := loadConfig()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	clientID := appCfg.Tools.Google.ClientID
+	clientSecret := appCfg.Tools.Google.ClientSecret
+
+	if clientID == "" || clientSecret == "" {
+		fmt.Println("Error: Google OAuth2 credentials not configured.")
+		fmt.Println("Set them in config.json under tools.google or via environment variables:")
+		fmt.Println("  PICOCLAW_GOOGLE_CLIENT_ID=<your-client-id>")
+		fmt.Println("  PICOCLAW_GOOGLE_CLIENT_SECRET=<your-client-secret>")
+		fmt.Println()
+		fmt.Println("Get credentials at: https://console.cloud.google.com/apis/credentials")
+		os.Exit(1)
+	}
+
+	cfg := auth.GoogleOAuthConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Scopes:       appCfg.Tools.Google.Scopes,
+	}
+
+	cred, err := auth.LoginGoogle(cfg)
+	if err != nil {
+		fmt.Printf("Google login failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := auth.SetCredential("google", cred); err != nil {
+		fmt.Printf("Failed to save Google credentials: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Google login successful!")
+	if cred.AccountID != "" {
+		fmt.Printf("Account: %s\n", cred.AccountID)
+	}
+	fmt.Println("Gmail and Google Calendar tools are now available.")
 }
 
 func authLoginPasteToken(provider string) {
